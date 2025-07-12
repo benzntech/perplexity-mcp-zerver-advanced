@@ -202,7 +202,7 @@ export async function fetchSimpleContent(
       return { title: null, textContent: null, error: dataError };
     }
 
-    const { title, textContent } = extractContent(contentType, response.data, url, ctx);
+    const { title, textContent } = extractContent(contentType, response.data as string, url, ctx);
     const { processedContent, error: processingError } = processTextContent(textContent, ctx);
 
     if (processingError ?? !processedContent) {

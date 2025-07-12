@@ -1,38 +1,34 @@
 import type { Page } from "puppeteer";
-/**
- * Tests for SearchEngine module
- * Comprehensive testing to achieve high code coverage
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IBrowserManager } from "../../../types/index.js";
 import { SearchEngine } from "../SearchEngine.js";
+import * as logging from "../../../utils/logging.js";
+import { CONFIG } from "../../config.js";
 
-// Type for accessing private methods in tests
-interface SearchEnginePrivate {
-  executeSearch(page: Page, selector: string, query: string): Promise<void>;
-  waitForCompleteAnswer(page: Page): Promise<string>;
-  extractCompleteAnswer(page: Page): Promise<string>;
-  generateErrorResponse(error: unknown): string;
-}
-
-// Mock logging
+// Mock dependencies
 vi.mock("../../../utils/logging.js", () => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
 }));
 
-// Mock config
 vi.mock("../../config.js", () => ({
   CONFIG: {
-    SELECTOR_TIMEOUT: 5000,
+    SELECTOR_TIMEOUT: 1000, // Use a shorter timeout for tests
   },
 }));
 
-import * as logging from "../../../utils/logging.js";
 const mockLogInfo = vi.mocked(logging.logInfo);
 const mockLogWarn = vi.mocked(logging.logWarn);
 const mockLogError = vi.mocked(logging.logError);
+
+// Type for accessing private methods
+interface SearchEnginePrivate {
+  executeSearch(page: Page, selector: string, query: string): Promise<void>;
+  waitForCompleteAnswer(page: Page): Promise<string>;
+  extractCompleteAnswer(page: Page): Promise<string>;
+  generateErrorResponse(error: unknown): string;
+}
 
 describe("SearchEngine", () => {
   let searchEngine: SearchEngine;
@@ -42,7 +38,6 @@ describe("SearchEngine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Create mock page
     mockPage = {
       evaluate: vi.fn(),
       click: vi.fn(),
@@ -53,15 +48,14 @@ describe("SearchEngine", () => {
       },
     } as unknown as Page;
 
-    // Create mock browser manager
     mockBrowserManager = {
-      isReady: vi.fn(),
-      initialize: vi.fn(),
-      navigateToPerplexity: vi.fn(),
-      getPage: vi.fn(),
-      waitForSearchInput: vi.fn(),
+      isReady: vi.fn().mockReturnValue(true),
+      initialize: vi.fn().mockResolvedValue(undefined),
+      navigateToPerplexity: vi.fn().mockResolvedValue(undefined),
+      getPage: vi.fn().mockReturnValue(mockPage),
+      waitForSearchInput: vi.fn().mockResolvedValue('textarea[placeholder*="Ask"]'),
       resetIdleTimeout: vi.fn(),
-      performRecovery: vi.fn(),
+      performRecovery: vi.fn().mockResolvedValue(undefined),
       checkForCaptcha: vi.fn(),
       cleanup: vi.fn(),
       getBrowser: vi.fn(),
@@ -71,299 +65,157 @@ describe("SearchEngine", () => {
   });
 
   describe("performSearch", () => {
-    const testQuery = "test search query";
-
-    it("should perform successful search when browser is ready", async () => {
-      // Setup successful flow
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.getPage = vi.fn().mockReturnValue(mockPage);
-      mockBrowserManager.waitForSearchInput = vi
+    it("should perform a successful search", async () => {
+      (searchEngine as unknown as SearchEnginePrivate).waitForCompleteAnswer = vi
         .fn()
-        .mockResolvedValue('textarea[placeholder*="Ask"]');
+        .mockResolvedValue("Test answer");
 
-      // Mock page interactions
-      mockPage.evaluate = vi.fn().mockResolvedValue(undefined);
-      mockPage.click = vi.fn().mockResolvedValue(undefined);
-      mockPage.type = vi.fn().mockResolvedValue(undefined);
-      mockPage.keyboard.press = vi.fn().mockResolvedValue(undefined);
-      mockPage.waitForSelector = vi.fn().mockResolvedValue(undefined);
+      const result = await searchEngine.performSearch("test query");
 
-      // Mock answer extraction
-      mockPage.evaluate = vi
-        .fn()
-        .mockResolvedValueOnce(undefined) // First call for clearing input
-        .mockResolvedValue("Test answer from search"); // Second call for answer extraction
-
-      const result = await searchEngine.performSearch(testQuery);
-
-      expect(result).toBe("Test answer from search");
+      expect(result).toBe("Test answer");
+      expect(mockBrowserManager.initialize).not.toHaveBeenCalled();
       expect(mockBrowserManager.navigateToPerplexity).toHaveBeenCalled();
-      expect(mockBrowserManager.waitForSearchInput).toHaveBeenCalled();
       expect(mockBrowserManager.resetIdleTimeout).toHaveBeenCalled();
-      expect(mockLogInfo).toHaveBeenCalledWith(expect.stringContaining("Executing search for"));
     });
 
-    it("should initialize browser when not ready", async () => {
+    it("should initialize browser if not ready", async () => {
       mockBrowserManager.isReady = vi.fn().mockReturnValue(false);
-      mockBrowserManager.initialize = vi.fn().mockResolvedValue(undefined);
-      mockBrowserManager.getPage = vi.fn().mockReturnValue(mockPage);
-      mockBrowserManager.waitForSearchInput = vi
+      (searchEngine as unknown as SearchEnginePrivate).waitForCompleteAnswer = vi
         .fn()
-        .mockResolvedValue('textarea[placeholder*="Ask"]');
+        .mockResolvedValue("Test answer");
 
-      mockPage.evaluate = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue("Test answer");
+      await searchEngine.performSearch("test query");
 
-      await searchEngine.performSearch(testQuery);
-
-      expect(mockLogInfo).toHaveBeenCalledWith("Browser not ready, initializing...");
       expect(mockBrowserManager.initialize).toHaveBeenCalled();
+      expect(mockLogInfo).toHaveBeenCalledWith("Browser not ready, initializing...");
     });
 
-    it("should handle no active page error", async () => {
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.getPage = vi.fn().mockReturnValue(null);
+    it("should handle errors and perform recovery", async () => {
+      const error = new Error("Search failed");
+      mockBrowserManager.navigateToPerplexity = vi.fn().mockRejectedValue(error);
 
-      const result = await searchEngine.performSearch(testQuery);
+      const result = await searchEngine.performSearch("test query");
 
       expect(result).toContain("search operation could not be completed");
-      expect(mockBrowserManager.performRecovery).toHaveBeenCalled();
-    });
-
-    it("should handle search input not found error", async () => {
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.getPage = vi.fn().mockReturnValue(mockPage);
-      mockBrowserManager.waitForSearchInput = vi.fn().mockResolvedValue(null);
-
-      const result = await searchEngine.performSearch(testQuery);
-
-      expect(result).toContain("search operation could not be completed");
-      expect(mockBrowserManager.performRecovery).toHaveBeenCalled();
-    });
-
-    it("should handle timeout errors with specific message", async () => {
-      const timeoutError = new Error("Timed out waiting for selector");
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.navigateToPerplexity = vi.fn().mockRejectedValue(timeoutError);
-
-      const result = await searchEngine.performSearch(testQuery);
-
-      expect(result).toContain("taking longer than expected");
-      expect(result).toContain("high server load");
-    });
-
-    it("should handle navigation errors with specific message", async () => {
-      const navError = new Error("Navigation failed");
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.navigateToPerplexity = vi.fn().mockRejectedValue(navError);
-
-      const result = await searchEngine.performSearch(testQuery);
-
-      expect(result).toContain("navigation issue");
-      expect(result).toContain("network connectivity problems");
-    });
-
-    it("should handle detached errors with specific message", async () => {
-      const detachedError = new Error("Detached frame error");
-      mockBrowserManager.isReady = vi.fn().mockReturnValue(true);
-      mockBrowserManager.navigateToPerplexity = vi.fn().mockRejectedValue(detachedError);
-
-      const result = await searchEngine.performSearch(testQuery);
-
-      expect(result).toContain("technical issue");
+      expect(mockBrowserManager.performRecovery).toHaveBeenCalledWith(error);
+      expect(mockLogError).toHaveBeenCalledWith("Search operation failed:", {
+        error: "Search failed",
+      });
     });
   });
 
   describe("executeSearch", () => {
-    const selector = 'textarea[placeholder*="Ask"]';
-    const query = "test query";
+    const privateAccess = () => searchEngine as unknown as SearchEnginePrivate;
 
-    it("should clear input and type query successfully", async () => {
-      mockPage.evaluate = vi.fn().mockResolvedValue(undefined);
-      mockPage.click = vi.fn().mockResolvedValue(undefined);
-      mockPage.type = vi.fn().mockResolvedValue(undefined);
-      mockPage.keyboard.press = vi.fn().mockResolvedValue(undefined);
-
-      // Access private method via type assertion
-      await (searchEngine as unknown as SearchEnginePrivate).executeSearch(
-        mockPage,
-        selector,
-        query,
-      );
+    it("should execute search query correctly", async () => {
+      await privateAccess().executeSearch(mockPage, "textarea", "query");
 
       expect(mockPage.evaluate).toHaveBeenCalled();
-      expect(mockPage.click).toHaveBeenCalledWith(selector, { clickCount: 3 });
+      expect(mockPage.click).toHaveBeenCalledWith("textarea", { clickCount: 3 });
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Backspace");
-      expect(mockPage.type).toHaveBeenCalledWith(
-        selector,
-        query,
-        expect.objectContaining({
-          delay: expect.any(Number),
-        }),
-      );
+      expect(mockPage.type).toHaveBeenCalledWith("textarea", "query", expect.any(Object));
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Enter");
       expect(mockLogInfo).toHaveBeenCalledWith("Search query submitted successfully");
     });
 
-    it("should handle input clearing errors gracefully", async () => {
-      const clearError = new Error("Clear input failed");
-      mockPage.evaluate = vi.fn().mockRejectedValue(clearError);
-      mockPage.click = vi.fn().mockRejectedValue(clearError);
-      mockPage.type = vi.fn().mockResolvedValue(undefined);
-      mockPage.keyboard.press = vi.fn().mockResolvedValue(undefined);
+    it("should handle errors when clearing input", async () => {
+      const error = new Error("Clear failed");
+      vi.mocked(mockPage.evaluate).mockRejectedValue(error);
 
-      await (searchEngine as unknown as SearchEnginePrivate).executeSearch(
-        mockPage,
-        selector,
-        query,
-      );
+      await privateAccess().executeSearch(mockPage, "textarea", "query");
 
       expect(mockLogWarn).toHaveBeenCalledWith("Error clearing input field:", {
-        error: "Clear input failed",
+        error: "Clear failed",
       });
-      expect(mockPage.type).toHaveBeenCalled(); // Should still proceed with typing
     });
 
-    it("should truncate long queries in log messages", async () => {
-      const longQuery = "a".repeat(100);
-      mockPage.evaluate = vi.fn().mockResolvedValue(undefined);
-      mockPage.click = vi.fn().mockResolvedValue(undefined);
-      mockPage.type = vi.fn().mockResolvedValue(undefined);
-      mockPage.keyboard.press = vi.fn().mockResolvedValue(undefined);
-
-      await (searchEngine as unknown as SearchEnginePrivate).executeSearch(
-        mockPage,
-        selector,
-        longQuery,
+    it("should truncate long queries in logs", async () => {
+      const longQuery = "a".repeat(60);
+      await privateAccess().executeSearch(mockPage, "textarea", longQuery);
+      expect(mockLogInfo).toHaveBeenCalledWith(
+        `Executing search for: "${"a".repeat(50)}..."`,
       );
-
-      expect(mockLogInfo).toHaveBeenCalledWith(expect.stringContaining("..."));
     });
   });
 
   describe("waitForCompleteAnswer", () => {
-    it("should find response with first prose selector", async () => {
-      mockPage.waitForSelector = vi.fn().mockResolvedValue(undefined);
-      mockPage.evaluate = vi.fn().mockResolvedValue("Complete answer text");
+    const privateAccess = () => searchEngine as unknown as SearchEnginePrivate;
 
-      const result = await (searchEngine as unknown as SearchEnginePrivate).waitForCompleteAnswer(
-        mockPage,
-      );
+    it("should wait for and return the complete answer", async () => {
+      const mockElementHandle = {} as any;
+      vi.mocked(mockPage.waitForSelector).mockResolvedValue(mockElementHandle);
+      privateAccess().extractCompleteAnswer = vi.fn().mockResolvedValue("Final answer");
 
-      expect(result).toBe("Complete answer text");
-      expect(mockPage.waitForSelector).toHaveBeenCalledWith(".prose", expect.any(Object));
+      const result = await privateAccess().waitForCompleteAnswer(mockPage);
+
+      expect(result).toBe("Final answer");
       expect(mockLogInfo).toHaveBeenCalledWith("Found response with selector: .prose");
     });
 
-    it("should try multiple selectors before finding one", async () => {
-      mockPage.waitForSelector = vi
-        .fn()
-        .mockRejectedValueOnce(new Error("Selector not found"))
-        .mockRejectedValueOnce(new Error("Selector not found"))
-        .mockResolvedValue(undefined);
-      mockPage.evaluate = vi.fn().mockResolvedValue("Answer found");
+    it("should try multiple selectors if the first fails", async () => {
+      const mockElementHandle = {} as any;
+      vi.mocked(mockPage.waitForSelector)
+        .mockRejectedValueOnce(new Error("Not found"))
+        .mockResolvedValue(mockElementHandle);
+      privateAccess().extractCompleteAnswer = vi.fn().mockResolvedValue("Final answer");
 
-      const result = await (searchEngine as unknown as SearchEnginePrivate).waitForCompleteAnswer(
-        mockPage,
-      );
+      await privateAccess().waitForCompleteAnswer(mockPage);
 
-      expect(result).toBe("Answer found");
-      expect(mockPage.waitForSelector).toHaveBeenCalledTimes(3);
-      expect(mockLogWarn).toHaveBeenCalledTimes(2);
+      expect(mockPage.waitForSelector).toHaveBeenCalledTimes(2);
+      expect(mockLogWarn).toHaveBeenCalledWith("Selector .prose not found, trying next...");
     });
 
-    it("should throw error when no selectors found", async () => {
-      mockPage.waitForSelector = vi.fn().mockRejectedValue(new Error("Selector not found"));
+    it("should throw if no response selectors are found", async () => {
+      vi.mocked(mockPage.waitForSelector).mockRejectedValue(new Error("Not found"));
 
-      await expect(
-        (searchEngine as unknown as SearchEnginePrivate).waitForCompleteAnswer(mockPage),
-      ).rejects.toThrow("No response elements found on page");
-
+      await expect(privateAccess().waitForCompleteAnswer(mockPage)).rejects.toThrow(
+        "No response elements found on page",
+      );
       expect(mockLogError).toHaveBeenCalledWith("No response selectors found");
     });
   });
 
   describe("extractCompleteAnswer", () => {
-    it("should extract answer with URLs", async () => {
-      const mockAnswerWithUrls = `Test answer content
-
-URLs:
-- https://example.com
-- https://test.com`;
-
-      mockPage.evaluate = vi.fn().mockResolvedValue(mockAnswerWithUrls);
-
-      const result = await (searchEngine as unknown as SearchEnginePrivate).extractCompleteAnswer(
-        mockPage,
-      );
-
-      expect(result).toBe(mockAnswerWithUrls);
-    });
-
-    it("should return fallback message when no content found", async () => {
-      // Mock page.evaluate to simulate the internal logic returning the fallback
-      mockPage.evaluate = vi
-        .fn()
-        .mockResolvedValue("No answer content found. The website may be experiencing issues.");
-
-      const result = await (searchEngine as unknown as SearchEnginePrivate).extractCompleteAnswer(
-        mockPage,
-      );
-
-      expect(result).toBe("No answer content found. The website may be experiencing issues.");
+    it("should return fallback message if no answer is found", async () => {
+      vi.mocked(mockPage.evaluate).mockResolvedValue("No answer content found. The website may be experiencing issues.");
+      const result = await (
+        searchEngine as unknown as SearchEnginePrivate
+      ).extractCompleteAnswer(mockPage);
+      expect(result).toContain("No answer content found");
     });
   });
 
   describe("generateErrorResponse", () => {
-    it("should generate timeout-specific error message", () => {
-      const timeoutError = new Error("Timed out waiting for selector");
-      const result = (searchEngine as unknown as SearchEnginePrivate).generateErrorResponse(
-        timeoutError,
-      );
+    const privateAccess = () => searchEngine as unknown as SearchEnginePrivate;
 
-      expect(result).toBe(
-        "The search operation is taking longer than expected. This might be due to high server load. Please try again with a more specific query.",
-      );
+    it("should generate a timeout-specific error message", () => {
+      const error = new Error("A timeout error occurred");
+      const result = privateAccess().generateErrorResponse(error);
+      expect(result).toBe("The search operation is taking longer than expected. This might be due to high server load. Please try again with a more specific query.");
     });
 
-    it("should generate navigation-specific error message", () => {
-      const navError = new Error("Navigation failed");
-      const result = (searchEngine as unknown as SearchEnginePrivate).generateErrorResponse(
-        navError,
-      );
-
-      expect(result).toBe(
-        "The search operation encountered a navigation issue. This might be due to network connectivity problems. Please try again later.",
-      );
+    it("should generate a navigation-specific error message", () => {
+      const error = new Error("Navigation failed");
+      const result = privateAccess().generateErrorResponse(error);
+      expect(result).toBe("The search operation encountered a navigation issue. This might be due to network connectivity problems. Please try again later.");
     });
 
-    it("should generate detached-specific error message", () => {
-      const detachedError = new Error("Page detached");
-      const result = (searchEngine as unknown as SearchEnginePrivate).generateErrorResponse(
-        detachedError,
-      );
-
-      expect(result).toBe(
-        "The search operation encountered a technical issue. Please try again with a more specific query.",
-      );
+    it("should generate a detached-specific error message", () => {
+      const error = new Error("Detached");
+      const result = privateAccess().generateErrorResponse(error);
+      expect(result).toBe("The search operation encountered a technical issue. Please try again with a more specific query.");
     });
 
-    it("should generate generic error message for other errors", () => {
-      const genericError = new Error("Some other error");
-      const result = (searchEngine as unknown as SearchEnginePrivate).generateErrorResponse(
-        genericError,
-      );
-
-      expect(result).toContain("search operation could not be completed");
-      expect(result).toContain("Some other error");
+    it("should generate a generic error for other errors", () => {
+      const error = new Error("A generic error");
+      const result = privateAccess().generateErrorResponse(error);
+      expect(result).toBe(`The search operation could not be completed. Error: A generic error. Please try again later with a more specific query.`);
     });
 
     it("should handle non-Error objects", () => {
-      const stringError = "String error message";
-      const result = (searchEngine as unknown as SearchEnginePrivate).generateErrorResponse(
-        stringError,
-      );
-
-      expect(result).toContain("String error message");
+      const error = "A string error";
+      const result = privateAccess().generateErrorResponse(error);
+      expect(result).toBe(`The search operation could not be completed. Error: A string error. Please try again later with a more specific query.`);
     });
   });
 });

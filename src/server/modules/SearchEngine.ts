@@ -10,12 +10,15 @@ import { CONFIG } from "../config.js";
 export class SearchEngine implements ISearchEngine {
   constructor(private readonly browserManager: IBrowserManager) {}
 
-  async performSearch(query: string): Promise<string> {
+  async performSearch(
+    query: string,
+    options: { launchOptions?: Record<string, unknown>; allowDangerous?: boolean } = {},
+  ): Promise<string> {
     try {
       // Ensure browser is ready
       if (!this.browserManager.isReady()) {
         logInfo("Browser not ready, initializing...");
-        await this.browserManager.initialize();
+        await this.browserManager.initialize(options);
       }
 
       // Navigate to Perplexity

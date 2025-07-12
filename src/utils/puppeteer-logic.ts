@@ -170,12 +170,7 @@ export function generateBrowserArgs(userAgent: string): string[] {
  */
 export function getSearchInputSelectors(): string[] {
   return [
-    'textarea[placeholder*="Ask"]',
-    'textarea[placeholder*="Search"]',
-    "textarea.w-full",
-    'textarea[rows="1"]',
     '[role="textbox"]',
-    "textarea",
   ];
 }
 

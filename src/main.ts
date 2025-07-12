@@ -2,6 +2,12 @@
 
 import { PerplexityServer } from "./server/PerplexityServer.js";
 
-// Create and start the server
-const server = new PerplexityServer();
-await server.run();
+async function run() {
+  const server = await PerplexityServer.create();
+  await server.run();
+}
+
+run().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});

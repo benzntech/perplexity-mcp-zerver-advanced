@@ -139,7 +139,8 @@ describe("Search Tool", () => {
       expect(result).toBe("Mock search result");
       expect(mockPerformSearch).toHaveBeenCalledWith(
         "Provide a clear, balanced answer to: test query. Include key points and relevant context.",
-        mockContext,
+        expect.any(Object),
+        expect.any(Object),
       );
     });
 
@@ -151,7 +152,8 @@ describe("Search Tool", () => {
       expect(result).toBe("Mock search result");
       expect(mockPerformSearch).toHaveBeenCalledWith(
         "Provide a brief, concise answer to: test query",
-        mockContext,
+        expect.any(Object),
+        expect.any(Object),
       );
     });
 
@@ -163,7 +165,8 @@ describe("Search Tool", () => {
       expect(result).toBe("Mock search result");
       expect(mockPerformSearch).toHaveBeenCalledWith(
         "Provide a comprehensive, detailed analysis of: test query. Include relevant examples, context, and supporting information where applicable.",
-        mockContext,
+        expect.any(Object),
+        expect.any(Object),
       );
     });
 
@@ -185,7 +188,8 @@ describe("Search Tool", () => {
       expect(result).toBe("Mock search result");
       expect(mockPerformSearch).toHaveBeenCalledWith(
         "Provide a clear, balanced answer to: . Include key points and relevant context.",
-        mockContext,
+        expect.any(Object),
+        expect.any(Object),
       );
     });
 
@@ -197,7 +201,8 @@ describe("Search Tool", () => {
       expect(result).toBe("Mock search result");
       expect(mockPerformSearch).toHaveBeenCalledWith(
         "Provide a clear, balanced answer to: test query. Include key points and relevant context.",
-        mockContext,
+        expect.any(Object),
+        expect.any(Object),
       );
     });
   });

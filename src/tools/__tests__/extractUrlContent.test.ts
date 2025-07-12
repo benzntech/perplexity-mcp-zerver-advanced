@@ -1,174 +1,79 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PuppeteerContext } from "../../types/index.js";
+import extractUrlContent from "../extractUrlContent.js";
 
-// Mock the dependencies
-vi.mock("puppeteer", () => ({
-  default: {
-    launch: vi.fn(),
-  },
-}));
+describe("extractUrlContent Tool", () => {
+  let mockContext: PuppeteerContext;
+  let mockFetchSinglePageContent: ReturnType<typeof vi.fn>;
+  let mockRecursiveFetch: ReturnType<typeof vi.fn>;
 
-vi.mock("@mozilla/readability", () => ({
-  Readability: vi.fn(),
-}));
-
-vi.mock("jsdom", () => ({
-  JSDOM: vi.fn(),
-}));
-
-describe("Extract URL Content Tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
 
-  describe("URL validation", () => {
-    it("should accept valid HTTP URLs", () => {
-      const validUrls = [
-        "http://example.com",
-        "https://example.com",
-        "https://www.example.com/path",
-        "https://subdomain.example.com/path?query=value",
-      ];
+    mockContext = {
+      log: vi.fn(),
+      browser: null,
+      page: null,
+      isInitializing: false,
+      searchInputSelector: "",
+      lastSearchTime: 0,
+      idleTimeout: null,
+      operationCount: 0,
+      setBrowser: vi.fn(),
+      setPage: vi.fn(),
+      setIsInitializing: vi.fn(),
+      setSearchInputSelector: vi.fn(),
+      setIdleTimeout: vi.fn(),
+      incrementOperationCount: vi.fn(),
+      determineRecoveryLevel: vi.fn(),
+      IDLE_TIMEOUT_MS: 100, // Use a short timeout for testing
+    };
 
-      for (const url of validUrls) {
-        try {
-          new URL(url);
-          expect(true).toBe(true); // URL is valid
-        } catch {
-          expect.fail(`${url} should be a valid URL`);
-        }
-      }
-    });
+    mockFetchSinglePageContent = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        status: "Success",
+        content: [{ url: "https://example.com", textContent: "Example content" }],
+      }),
+    );
 
-    it("should reject invalid URLs", () => {
-      const invalidUrls = [
-        "",
-        "not-a-url",
-        "ftp://example.com", // We only support HTTP/HTTPS
-        "file://local-file",
-      ];
-
-      for (const url of invalidUrls) {
-        if (url === "") {
-          expect(url).toBe("");
-          continue;
-        }
-
-        if (!url.startsWith("http")) {
-          expect(url.startsWith("http")).toBe(false);
-        }
-      }
+    mockRecursiveFetch = vi.fn().mockImplementation(async (startUrl, maxDepth, currentDepth, visitedUrls, results) => {
+      results.push({ url: startUrl, textContent: "Recursive content" });
     });
   });
 
-  describe("Content extraction", () => {
-    it("should handle HTML content", () => {
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-          <head><title>Test Page</title></head>
-          <body>
-            <article>
-              <h1>Main Title</h1>
-              <p>Test paragraph content.</p>
-            </article>
-          </body>
-        </html>
-      `;
-
-      expect(htmlContent).toContain("<title>Test Page</title>");
-      expect(htmlContent).toContain("<h1>Main Title</h1>");
-      expect(htmlContent).toContain("Test paragraph content.");
-    });
-
-    it("should format extracted content correctly", () => {
-      const mockResult = {
-        content: [
-          {
-            type: "text",
-            text: "Extracted content from URL",
-          },
-        ],
-        isError: false,
-      };
-
-      expect(mockResult.content).toHaveLength(1);
-      expect(mockResult.content[0]?.type).toBe("text");
-      expect(mockResult.content[0]?.text).toContain("Extracted content");
-      expect(mockResult.isError).toBe(false);
-    });
+  it("should call fetchSinglePageContent for depth 1", async () => {
+    const args = { url: "https://example.com", depth: 1 };
+    await extractUrlContent(args, mockContext, mockFetchSinglePageContent, mockRecursiveFetch);
+    expect(mockFetchSinglePageContent).toHaveBeenCalledWith("https://example.com", mockContext, expect.any(Object));
+    expect(mockRecursiveFetch).not.toHaveBeenCalled();
   });
 
-  describe("Depth parameter", () => {
-    it("should validate depth range", () => {
-      const validDepths = [1, 2, 3, 4, 5];
-      const invalidDepths = [0, 6, -1, 10];
-
-      for (const depth of validDepths) {
-        expect(depth).toBeGreaterThanOrEqual(1);
-        expect(depth).toBeLessThanOrEqual(5);
-      }
-
-      for (const depth of invalidDepths) {
-        expect(depth < 1 || depth > 5).toBe(true);
-      }
-    });
-
-    it("should default to depth 1", () => {
-      const defaultDepth = 1;
-      expect(defaultDepth).toBe(1);
-    });
+  it("should call recursiveFetch for depth greater than 1", async () => {
+    const args = { url: "https://example.com", depth: 2 };
+    const result = await extractUrlContent(args, mockContext, mockFetchSinglePageContent, mockRecursiveFetch);
+    expect(mockRecursiveFetch).toHaveBeenCalled();
+    expect(mockFetchSinglePageContent).not.toHaveBeenCalled();
+    const parsedResult = JSON.parse(result);
+    expect(parsedResult.status).toBe("Success");
+    expect(parsedResult.content[0].textContent).toBe("Recursive content");
   });
 
-  describe("Error handling", () => {
-    it("should handle network errors", () => {
-      const networkError = {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to fetch URL",
-          },
-        ],
-        isError: true,
-      };
-
-      expect(networkError.isError).toBe(true);
-      expect(networkError.content[0]?.text).toContain("Error:");
-    });
-
-    it("should handle invalid HTML", () => {
-      const invalidHtml = "<html><head><title>Broken";
-
-      // Even broken HTML should be processable to some degree
-      expect(typeof invalidHtml).toBe("string");
-      expect(invalidHtml.length).toBeGreaterThan(0);
-    });
+  it("should handle errors during recursive fetch", async () => {
+    const error = new Error("Recursive fetch failed");
+    mockRecursiveFetch.mockRejectedValue(error);
+    const args = { url: "https://example.com", depth: 2 };
+    const result = await extractUrlContent(args, mockContext, mockFetchSinglePageContent, mockRecursiveFetch);
+    const parsedResult = JSON.parse(result);
+    expect(parsedResult.status).toBe("Error");
+    expect(parsedResult.message).toContain("Recursive fetch failed");
   });
 
-  describe("GitHub repository handling", () => {
-    it("should identify GitHub URLs", () => {
-      const githubUrls = [
-        "https://github.com/user/repo",
-        "https://github.com/user/repo/tree/main",
-        "https://github.com/user/repo/blob/main/README.md",
-      ];
-
-      for (const url of githubUrls) {
-        const parsedUrl = new URL(url);
-        expect(parsedUrl.host).toBe("github.com");
-      }
-    });
-
-    it("should handle non-GitHub URLs", () => {
-      const nonGithubUrls = [
-        "https://example.com",
-        "https://stackoverflow.com/questions/123",
-        "https://docs.example.com/api",
-      ];
-
-      for (const url of nonGithubUrls) {
-        const parsedUrl = new URL(url);
-        expect(parsedUrl.host).not.toBe("github.com");
-      }
-    });
+  it("should handle timeouts during recursive fetch", async () => {
+    mockRecursiveFetch.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 200)));
+    const args = { url: "https://example.com", depth: 2 };
+    const result = await extractUrlContent(args, mockContext, mockFetchSinglePageContent, mockRecursiveFetch);
+    const parsedResult = JSON.parse(result);
+    expect(parsedResult.status).toBe("Error");
+    expect(parsedResult.message).toContain("timed out");
   });
 });

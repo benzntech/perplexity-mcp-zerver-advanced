@@ -32,6 +32,16 @@ export const TOOL_SCHEMAS = [
             "Optional: ID of an existing chat to continue. If not provided, a new chat will be created.",
           examples: ["123e4567-e89b-12d3-a456-426614174000"],
         },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
+        },
       },
       required: ["message"],
     },
@@ -117,6 +127,16 @@ export const TOOL_SCHEMAS = [
           maximum: 5,
           default: 1,
           examples: [1, 3],
+        },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
         },
       },
       required: ["url"],
@@ -213,6 +233,16 @@ export const TOOL_SCHEMAS = [
           description: "Additional context or specific aspects to focus on",
           examples: ["focus on performance optimization", "include TypeScript examples"],
         },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
+        },
       },
       required: ["query"],
     },
@@ -260,6 +290,16 @@ export const TOOL_SCHEMAS = [
           type: "string",
           description: "Additional context about the project or specific needs",
           examples: ["prefer free tier options", "must support Python SDK"],
+        },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
         },
       },
       required: ["requirement"],
@@ -311,6 +351,16 @@ export const TOOL_SCHEMAS = [
           type: "string",
           description: 'The technology or framework context (e.g., "React", "Node.js")',
           examples: ["React 16", "Python 2.7", "Node.js 12"],
+        },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
         },
       },
       required: ["code"],
@@ -371,6 +421,16 @@ export const TOOL_SCHEMAS = [
           description:
             "Optional: Enable streaming response for large documentation queries (default: false).",
           examples: [true, false],
+        },
+        launchOptions: {
+          type: "object",
+          description:
+            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
+        },
+        allowDangerous: {
+          type: "boolean",
+          description:
+            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
         },
       },
       required: ["query"],

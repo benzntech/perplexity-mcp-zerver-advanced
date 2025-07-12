@@ -7,14 +7,17 @@ import type { PuppeteerContext } from "../types/index.js";
 /**
  * Handles web search with configurable detail levels and optional streaming
  */
+import type { LaunchOptions } from "puppeteer";
 export default async function search(
   args: {
     query: string;
     detail_level?: "brief" | "normal" | "detailed";
     stream?: boolean;
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
   },
   ctx: PuppeteerContext,
-  performSearch: (prompt: string, ctx: PuppeteerContext) => Promise<string>,
+  performSearch: (prompt: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
 ): Promise<string | AsyncGenerator<string, void, unknown>> {
   const { query, detail_level = "normal", stream = false } = args;
 
@@ -32,11 +35,11 @@ export default async function search(
 
   // If streaming is not requested, return traditional response
   if (!stream) {
-    return await performSearch(prompt, ctx);
+    return await performSearch(prompt, ctx, { launchOptions: args.launchOptions, allowDangerous: args.allowDangerous });
   }
 
   // Return real streaming generator that monitors browser automation
-  return realTimeStreamingSearch(prompt, ctx, performSearch);
+  return realTimeStreamingSearch(prompt, ctx, args, performSearch);
 }
 
 // Helper functions for streaming search
@@ -58,7 +61,11 @@ async function* streamSearchInitiation(prompt: string): AsyncGenerator<string, v
 async function* streamSearchExecution(
   prompt: string,
   ctx: PuppeteerContext,
-  performSearch: (prompt: string, ctx: PuppeteerContext) => Promise<string>,
+  args: {
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
+  },
+  performSearch: (prompt: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
 ): AsyncGenerator<string, void, unknown> {
   let searchCompleted = false;
   let finalResult = "";
@@ -67,7 +74,7 @@ async function* streamSearchExecution(
   const monitoringTask = monitorPageContent(ctx);
 
   // Start both search and monitoring
-  const searchTask = performSearch(prompt, ctx).then((result) => {
+  const searchTask = performSearch(prompt, ctx, args).then((result) => {
     searchCompleted = true;
     finalResult = result;
     return result;
@@ -103,10 +110,14 @@ async function* streamSearchResults(result: string): AsyncGenerator<string, void
 async function* streamFallbackSearch(
   prompt: string,
   ctx: PuppeteerContext,
-  performSearch: (prompt: string, ctx: PuppeteerContext) => Promise<string>,
+  args: {
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
+  },
+  performSearch: (prompt: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
 ): AsyncGenerator<string, void, unknown> {
   yield "⚠️  Streaming unavailable, falling back to standard search...\n\n";
-  const result = await performSearch(prompt, ctx);
+  const result = await performSearch(prompt, ctx, args);
   yield result;
 }
 
@@ -122,7 +133,11 @@ function formatStreamingError(error: unknown): string {
 async function* realTimeStreamingSearch(
   prompt: string,
   ctx: PuppeteerContext,
-  performSearch: (prompt: string, ctx: PuppeteerContext) => Promise<string>,
+  args: {
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
+  },
+  performSearch: (prompt: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
 ): AsyncGenerator<string, void, unknown> {
   yield "🔍 **Starting documentation search...**\n\n";
 
@@ -133,9 +148,9 @@ async function* realTimeStreamingSearch(
     // Check if page is available for streaming
     if (ctx.page && !ctx.page.isClosed()) {
       yield* streamSearchInitiation(prompt);
-      yield* streamSearchExecution(prompt, ctx, performSearch);
+      yield* streamSearchExecution(prompt, ctx, args, performSearch);
     } else {
-      yield* streamFallbackSearch(prompt, ctx, performSearch);
+      yield* streamFallbackSearch(prompt, ctx, args, performSearch);
     }
 
     yield "\n\n✅ **Search completed successfully!**";

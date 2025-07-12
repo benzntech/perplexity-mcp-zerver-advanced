@@ -4,7 +4,10 @@
 
 // ─── SEARCH ENGINE INTERFACE ──────────────────────────────────────────
 export interface ISearchEngine {
-  performSearch(query: string): Promise<string>;
+  performSearch(
+    query: string,
+    options?: { launchOptions?: Record<string, unknown>; allowDangerous?: boolean },
+  ): Promise<string>;
 }
 
 // ─── TOOL HANDLER TYPES ───────────────────────────────────────────────
@@ -26,32 +29,37 @@ export interface ToolHandlersRegistry {
 }
 
 // ─── TOOL ARGUMENT TYPES ──────────────────────────────────────────────
-export interface ChatPerplexityArgs {
+export interface BaseToolArgs {
+  launchOptions?: Record<string, unknown>;
+  allowDangerous?: boolean;
+}
+
+export interface ChatPerplexityArgs extends BaseToolArgs {
   message: string;
   chat_id?: string;
 }
 
-export interface ExtractUrlContentArgs {
+export interface ExtractUrlContentArgs extends BaseToolArgs {
   url: string;
   depth?: number;
 }
 
-export interface GetDocumentationArgs {
+export interface GetDocumentationArgs extends BaseToolArgs {
   query: string;
   context?: string;
 }
 
-export interface FindApisArgs {
+export interface FindApisArgs extends BaseToolArgs {
   requirement: string;
   context?: string;
 }
 
-export interface CheckDeprecatedCodeArgs {
+export interface CheckDeprecatedCodeArgs extends BaseToolArgs {
   code: string;
   technology?: string;
 }
 
-export interface SearchArgs {
+export interface SearchArgs extends BaseToolArgs {
   query: string;
   detail_level?: "brief" | "normal" | "detailed";
 }

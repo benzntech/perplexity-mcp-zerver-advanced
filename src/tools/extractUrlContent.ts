@@ -98,10 +98,17 @@ function formatErrorResult(
   };
 }
 
+import type { LaunchOptions } from "puppeteer";
+
 export default async function extractUrlContent(
-  args: { url: string; depth?: number },
+  args: {
+    url: string;
+    depth?: number;
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
+  },
   ctx: PuppeteerContext,
-  fetchSinglePageContent: (url: string, ctx: PuppeteerContext) => Promise<string>,
+  fetchSinglePageContent: (url: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
   recursiveFetch: (
     startUrl: string,
     maxDepth: number,
@@ -110,13 +117,17 @@ export default async function extractUrlContent(
     results: PageContentResult[],
     globalTimeoutSignal: { timedOut: boolean },
     ctx: PuppeteerContext,
+    options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }
   ) => Promise<void>,
 ): Promise<string> {
   const { url, depth = 1 } = args;
   const validatedDepth = Math.max(1, Math.min(depth, 5));
 
   if (validatedDepth === 1) {
-    return await fetchSinglePageContent(url, ctx);
+    return await fetchSinglePageContent(url, ctx, {
+      launchOptions: args.launchOptions,
+      allowDangerous: args.allowDangerous
+    });
   }
 
   // Recursive fetch logic
@@ -139,6 +150,10 @@ export default async function extractUrlContent(
       results,
       globalTimeoutSignal,
       ctx,
+      {
+        launchOptions: args.launchOptions,
+        allowDangerous: args.allowDangerous
+      }
     );
 
     await Promise.race([fetchPromise, timeoutPromise]);

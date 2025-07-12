@@ -40,11 +40,19 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
 
     try {
       if (toolHandlers[name]) {
-        const result = await toolHandlers[name](args || {});
+        // Extract launchOptions and allowDangerous from arguments
+        const { launchOptions, allowDangerous, ...restArgs } = args || {};
+        const toolArgs = {
+          ...restArgs,
+          ...(launchOptions ? { launchOptions } : {}),
+          ...(allowDangerous !== undefined ? { allowDangerous } : {}),
+        };
+
+        const result = await toolHandlers[name](toolArgs);
 
         // Special case for chat to return chat_id
         if (name === "chat_perplexity") {
-          const chatArgs = (args || {}) as unknown as ChatPerplexityArgs;
+          const chatArgs = toolArgs as unknown as ChatPerplexityArgs;
           const chatId = chatArgs.chat_id || crypto.randomUUID();
           return {
             content: [

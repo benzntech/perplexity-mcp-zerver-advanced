@@ -9,6 +9,12 @@ import type {
   IDatabaseManager,
   ISearchEngine,
   ServerDependencies,
+  ChatPerplexityArgs,
+  GetDocumentationArgs,
+  FindApisArgs,
+  CheckDeprecatedCodeArgs,
+  SearchArgs,
+  ExtractUrlContentArgs,
 } from "../types/index.js";
 import { logError, logInfo } from "../utils/logging.js";
 import { BrowserManager } from "./modules/BrowserManager.js";
@@ -26,7 +32,7 @@ export class PerplexityServer {
   private readonly searchEngine: ISearchEngine;
   private readonly databaseManager: IDatabaseManager;
 
-  constructor(dependencies?: ServerDependencies) {
+  private constructor(dependencies?: ServerDependencies) {
     try {
       // Initialize MCP Server
       this.server = new Server(
@@ -45,9 +51,6 @@ export class PerplexityServer {
       this.browserManager = dependencies?.browserManager ?? new BrowserManager();
       this.searchEngine = dependencies?.searchEngine ?? new SearchEngine(this.browserManager);
 
-      // Initialize database
-      this.databaseManager.initialize();
-
       // Setup tool handlers
       this.setupToolHandlers();
 
@@ -57,7 +60,7 @@ export class PerplexityServer {
         this.setupShutdownHandler();
       }
 
-      logInfo("PerplexityServer initialized successfully");
+      logInfo("PerplexityServer constructed successfully");
     } catch (error) {
       logError("Error in PerplexityServer constructor:", {
         error: error instanceof Error ? error.message : String(error),
@@ -65,6 +68,14 @@ export class PerplexityServer {
       });
       throw error;
     }
+  }
+
+  public static async create(dependencies?: ServerDependencies): Promise<PerplexityServer> {
+    const serverInstance = new PerplexityServer(dependencies);
+    await serverInstance.databaseManager.initialize();
+    await serverInstance.browserManager.initialize();
+    logInfo("PerplexityServer initialized successfully");
+    return serverInstance;
   }
 
   private setupShutdownHandler(): void {
@@ -97,10 +108,13 @@ export class PerplexityServer {
 
   // Tool handler implementations
   private async handleChatPerplexity(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as { message: string; chat_id?: string };
+    const typedArgs = args as unknown as ChatPerplexityArgs;
 
     // Use modular search engine
-    const searchResult = await this.searchEngine.performSearch(typedArgs.message);
+    const searchResult = await this.searchEngine.performSearch(typedArgs.message, {
+      launchOptions: typedArgs.launchOptions,
+      allowDangerous: typedArgs.allowDangerous,
+    });
 
     // Use modular database manager
     const getChatHistoryFn = (chatId: string) => this.databaseManager.getChatHistory(chatId);
@@ -120,41 +134,52 @@ export class PerplexityServer {
   }
 
   private async handleGetDocumentation(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as { query: string; context?: string };
+    const typedArgs = args as unknown as GetDocumentationArgs;
     const searchResult = await this.searchEngine.performSearch(
       `Documentation for ${typedArgs.query}: ${typedArgs.context || ""}`,
+      {
+        launchOptions: typedArgs.launchOptions,
+        allowDangerous: typedArgs.allowDangerous,
+      },
     );
     return searchResult;
   }
 
   private async handleFindApis(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as { requirement: string; context?: string };
+    const typedArgs = args as unknown as FindApisArgs;
     const searchResult = await this.searchEngine.performSearch(
       `Find APIs for ${typedArgs.requirement}: ${typedArgs.context || ""}`,
+      {
+        launchOptions: typedArgs.launchOptions,
+        allowDangerous: typedArgs.allowDangerous,
+      },
     );
     return searchResult;
   }
 
   private async handleCheckDeprecatedCode(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as { code: string; technology?: string };
+    const typedArgs = args as unknown as CheckDeprecatedCodeArgs;
     const searchResult = await this.searchEngine.performSearch(
       `Check if this ${typedArgs.technology || "code"} is deprecated: ${typedArgs.code}`,
+      {
+        launchOptions: typedArgs.launchOptions,
+        allowDangerous: typedArgs.allowDangerous,
+      },
     );
     return searchResult;
   }
 
   private async handleSearch(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as {
-      query: string;
-      detail_level?: "brief" | "normal" | "detailed";
-      stream?: boolean;
-    };
+    const typedArgs = args as unknown as SearchArgs;
 
-    return await this.searchEngine.performSearch(typedArgs.query);
+    return await this.searchEngine.performSearch(typedArgs.query, {
+      launchOptions: typedArgs.launchOptions,
+      allowDangerous: typedArgs.allowDangerous,
+    });
   }
 
   private async handleExtractUrlContent(args: Record<string, unknown>): Promise<string> {
-    const typedArgs = args as { url: string; depth?: number };
+    const typedArgs = args as unknown as ExtractUrlContentArgs;
 
     // For now, use the original implementation
     // In the future, this could be moved to a ContentExtractor module
@@ -192,8 +217,7 @@ export class PerplexityServer {
       logInfo("PerplexityServer connected and ready");
       logInfo("Server is listening for requests...");
 
-      // Keep the process alive
-      process.stdin.resume();
+      // The transport handles keeping the process alive.
     } catch (error) {
       logError("Failed to start server:", {
         error: error instanceof Error ? error.message : String(error),

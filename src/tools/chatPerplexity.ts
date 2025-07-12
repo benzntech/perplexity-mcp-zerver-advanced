@@ -8,10 +8,17 @@ import type { ChatMessage, PuppeteerContext } from "../types/index.js";
 /**
  * Handles chat interactions with conversation history
  */
+import type { LaunchOptions } from "puppeteer";
+
 export default async function chatPerplexity(
-  args: { message: string; chat_id?: string },
+  args: {
+    message: string;
+    chat_id?: string;
+    launchOptions?: LaunchOptions;
+    allowDangerous?: boolean;
+  },
   ctx: PuppeteerContext,
-  performSearch: (prompt: string, ctx: PuppeteerContext) => Promise<string>,
+  performSearch: (prompt: string, ctx: PuppeteerContext, options?: { launchOptions?: LaunchOptions; allowDangerous?: boolean }) => Promise<string>,
   getChatHistory: (chat_id: string) => ChatMessage[],
   saveChatMessage: (chat_id: string, message: ChatMessage) => void,
 ): Promise<string> {
@@ -27,5 +34,8 @@ export default async function chatPerplexity(
   }
   conversationPrompt += `User: ${message}\n`;
 
-  return await performSearch(conversationPrompt, ctx);
+  return await performSearch(conversationPrompt, ctx, {
+    launchOptions: args.launchOptions,
+    allowDangerous: args.allowDangerous
+  });
 }

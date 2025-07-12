@@ -123,7 +123,10 @@ export interface PuppeteerContext {
 
 // ─── BROWSER MANAGER INTERFACE ────────────────────────────────────────
 export interface IBrowserManager {
-  initialize(): Promise<void>;
+  initialize(options?: {
+    launchOptions?: Record<string, unknown>;
+    allowDangerous?: boolean;
+  }): Promise<void>;
   navigateToPerplexity(): Promise<void>;
   waitForSearchInput(): Promise<string | null>;
   checkForCaptcha(): Promise<boolean>;

@@ -2,17 +2,61 @@
  * BrowserManager - Handles all Puppeteer browser operations
  * Focused, testable module for browser automation
  */
-import type { Browser, Page } from "puppeteer";
+import type { Browser, Page, LaunchOptions } from "puppeteer";
+import puppeteer from "puppeteer";
 import type { IBrowserManager, PuppeteerContext } from "../../types/index.js";
 import { logError, logInfo, logWarn } from "../../utils/logging.js";
 import {
   checkForCaptcha,
-  initializeBrowser,
   navigateToPerplexity,
   recoveryProcedure,
   resetIdleTimeout,
   waitForSearchInput,
 } from "../../utils/puppeteer.js";
+
+// Deep merge utility function
+function deepMerge(target: any, source: any): any {
+  const output = Object.assign({}, target);
+  if (typeof target !== 'object' || typeof source !== 'object') return source;
+
+  for (const key of Object.keys(source)) {
+    const targetVal = target[key];
+    const sourceVal = source[key];
+    if (Array.isArray(targetVal) && Array.isArray(sourceVal)) {
+      // Deduplicate args/ignoreDefaultArgs, prefer source values
+      output[key] = [...new Set([
+        ...(key === 'args' || key === 'ignoreDefaultArgs' ?
+          targetVal.filter((arg: string) => {
+            if (typeof arg !== 'string') return true;
+            const argPrefix = arg.includes('=') ? arg.split('=')[0]! : arg;
+            return !sourceVal.some((launchArg: string) =>
+              typeof launchArg === 'string' &&
+              arg.startsWith('--') &&
+              launchArg.startsWith(argPrefix as string)
+            );
+          }) :
+          targetVal),
+        ...sourceVal
+      ])];
+    } else if (sourceVal instanceof Object && key in target) {
+      output[key] = deepMerge(targetVal, sourceVal);
+    } else {
+      output[key] = sourceVal;
+    }
+  }
+  return output;
+}
+
+const DANGEROUS_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--single-process',
+  '--disable-web-security',
+  '--ignore-certificate-errors',
+  '--disable-features=IsolateOrigins',
+  '--disable-site-isolation-trials',
+  '--allow-running-insecure-content'
+];
 
 export class BrowserManager implements IBrowserManager {
   private browser: Browser | null = null;
@@ -23,6 +67,9 @@ export class BrowserManager implements IBrowserManager {
   private idleTimeout: NodeJS.Timeout | null = null;
   private operationCount = 0;
   private readonly IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+  private previousLaunchOptions: LaunchOptions | null = null;
+  private launchOptions: LaunchOptions = {};
+  private allowDangerous = false;
 
   private getPuppeteerContext(): PuppeteerContext {
     return {
@@ -99,21 +146,101 @@ export class BrowserManager implements IBrowserManager {
     return 1;
   }
 
-  async initialize(): Promise<void> {
+  private async ensureBrowser(options: { launchOptions?: LaunchOptions, allowDangerous?: boolean } = {}): Promise<void> {
+    // Parse environment config safely
+    let envConfig = {};
+    try {
+      envConfig = JSON.parse(process.env['PUPPETEER_LAUNCH_OPTIONS'] || '{}');
+    } catch (error: any) {
+      logWarn('Failed to parse PUPPETEER_LAUNCH_OPTIONS:', error?.message || error);
+    }
+
+    // Update instance configuration
+    this.launchOptions = deepMerge(this.launchOptions, options.launchOptions || {});
+    this.allowDangerous = options.allowDangerous || false;
+
+    // Deep merge environment config with instance options
+    const mergedConfig = deepMerge(envConfig, this.launchOptions);
+
+    // When running as root, --no-sandbox is required.
+    if (process.getuid && process.getuid() === 0) {
+      if (!mergedConfig.args) {
+        mergedConfig.args = [];
+      }
+      if (!mergedConfig.args.includes('--no-sandbox')) {
+        mergedConfig.args.push('--no-sandbox');
+      }
+    }
+
+    // Security validation
+    if (mergedConfig?.args) {
+      const dangerousArgs = mergedConfig.args.filter?.((arg: string) =>
+        DANGEROUS_ARGS.some(dangerousArg => arg.startsWith(dangerousArg)));
+      
+      if (dangerousArgs?.length > 0 && !(this.allowDangerous || (process.env['ALLOW_DANGEROUS'] === 'true'))) {
+        throw new Error(`Dangerous browser arguments detected: ${dangerousArgs.join(', ')}. ` +
+          'Set allowDangerous: true to override.');
+      }
+    }
+
+    try {
+      if ((this.browser && !this.browser.connected) ||
+          (this.launchOptions && (JSON.stringify(this.launchOptions) !== JSON.stringify(this.previousLaunchOptions)))) {
+        await this.browser?.close();
+        this.browser = null;
+        this.page = null;
+      }
+    } catch (error) {
+      this.browser = null;
+      this.page = null;
+    }
+
+    this.previousLaunchOptions = this.launchOptions;
+
+    if (!this.browser) {
+      const launchArgs = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+        ],
+      };
+      
+      this.browser = await puppeteer.launch(deepMerge(
+        launchArgs,
+        mergedConfig
+      ));
+      
+      const pages = await this.browser.pages();
+      this.page = pages[0] || await this.browser.newPage();
+      
+      if (this.page) {
+        this.page.on("console", (msg) => {
+          const logEntry = `[${msg.type()}] ${msg.text()}`;
+          logInfo(logEntry);
+        });
+      }
+    }
+  }
+
+  async initialize(options: { launchOptions?: LaunchOptions, allowDangerous?: boolean } = {}): Promise<void> {
     if (this.isInitializing) {
       logInfo("Browser initialization already in progress...");
       return;
     }
 
+    this.isInitializing = true;
     try {
-      const ctx = this.getPuppeteerContext();
-      await initializeBrowser(ctx);
+      await this.ensureBrowser(options);
       logInfo("BrowserManager initialized successfully");
     } catch (error) {
       logError("BrowserManager initialization failed:", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    } finally {
+      this.isInitializing = false;
     }
   }
 
@@ -160,6 +287,7 @@ export class BrowserManager implements IBrowserManager {
       this.page = null;
       this.browser = null;
       this.isInitializing = false;
+      this.previousLaunchOptions = null;
 
       logInfo("BrowserManager cleanup completed");
     } catch (error) {

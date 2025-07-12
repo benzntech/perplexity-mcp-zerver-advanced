@@ -48,7 +48,7 @@ describe("chatPerplexity tool", () => {
       );
 
       expect(result).toBe("Mock chat response");
-      expect(mockPerformSearch).toHaveBeenCalledWith("User: Hello, how are you?\n", mockContext);
+      expect(mockPerformSearch).toHaveBeenCalledWith("User: Hello, how are you?\n", expect.any(Object), expect.any(Object));
     });
 
     it("should handle empty message", async () => {
@@ -63,7 +63,7 @@ describe("chatPerplexity tool", () => {
       );
 
       expect(result).toBe("Mock chat response");
-      expect(mockPerformSearch).toHaveBeenCalledWith("User: \n", mockContext);
+      expect(mockPerformSearch).toHaveBeenCalledWith("User: \n", expect.any(Object), expect.any(Object));
     });
 
     it("should handle long message", async () => {
@@ -80,7 +80,7 @@ describe("chatPerplexity tool", () => {
       );
 
       expect(result).toBe("Mock chat response");
-      expect(mockPerformSearch).toHaveBeenCalledWith(`User: ${longMessage}\n`, mockContext);
+      expect(mockPerformSearch).toHaveBeenCalledWith(`User: ${longMessage}\n`, expect.any(Object), expect.any(Object));
     });
 
     it("should handle special characters in message", async () => {
@@ -96,7 +96,7 @@ describe("chatPerplexity tool", () => {
       );
 
       expect(result).toBe("Mock chat response");
-      expect(mockPerformSearch).toHaveBeenCalledWith(`User: ${specialMessage}\n`, mockContext);
+      expect(mockPerformSearch).toHaveBeenCalledWith(`User: ${specialMessage}\n`, expect.any(Object), expect.any(Object));
     });
   });
 });

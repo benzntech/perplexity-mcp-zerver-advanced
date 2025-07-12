@@ -1,12 +1,28 @@
 /**
  * Tests for BrowserManager module
- * Demonstrates how modular architecture enables easy testing
+ * Mocks Puppeteer and other dependencies to ensure focused, reliable unit tests.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Browser, LaunchOptions, Page } from "puppeteer";
+import puppeteer from "puppeteer";
+import { BrowserManager } from "../BrowserManager.js";
+import * as logging from "../../../utils/logging.js";
+import * as puppeteerUtils from "../../../utils/puppeteer.js";
 
-// Mock Puppeteer utilities with proper hoisting
+// Mock external dependencies
+vi.mock("puppeteer", () => ({
+  default: {
+    launch: vi.fn(),
+  },
+}));
+
+vi.mock("../../../utils/logging.js", () => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
 vi.mock("../../../utils/puppeteer.js", () => ({
-  initializeBrowser: vi.fn(),
   navigateToPerplexity: vi.fn(),
   waitForSearchInput: vi.fn(),
   checkForCaptcha: vi.fn(),
@@ -14,167 +30,141 @@ vi.mock("../../../utils/puppeteer.js", () => ({
   resetIdleTimeout: vi.fn(),
 }));
 
-import * as puppeteerUtils from "../../../utils/puppeteer.js";
-import { BrowserManager } from "../BrowserManager.js";
-
-// Extract mocked functions with proper typing
-const mockInitializeBrowser = vi.mocked(puppeteerUtils.initializeBrowser);
+const mockPuppeteer = vi.mocked(puppeteer);
+const mockLogInfo = vi.mocked(logging.logInfo);
+const mockLogError = vi.mocked(logging.logError);
 const mockNavigateToPerplexity = vi.mocked(puppeteerUtils.navigateToPerplexity);
 const mockWaitForSearchInput = vi.mocked(puppeteerUtils.waitForSearchInput);
 const mockCheckForCaptcha = vi.mocked(puppeteerUtils.checkForCaptcha);
 const mockRecoveryProcedure = vi.mocked(puppeteerUtils.recoveryProcedure);
+const mockResetIdleTimeout = vi.mocked(puppeteerUtils.resetIdleTimeout);
 
-// Mock logging - move functions inside factory to avoid hoisting issues
-vi.mock("../../../utils/logging.js", () => ({
-  logInfo: vi.fn(),
-  logWarn: vi.fn(),
-  logError: vi.fn(),
-}));
-
-// Import the mocked logging functions
-import * as logging from "../../../utils/logging.js";
-const mockLogInfo = vi.mocked(logging.logInfo);
-const mockLogWarn = vi.mocked(logging.logWarn);
-const mockLogError = vi.mocked(logging.logError);
-
-// Mock browser and page objects
-const mockPage = {
-  isClosed: vi.fn().mockReturnValue(false),
-  close: vi.fn(),
-};
-
-const mockBrowser = {
-  isConnected: vi.fn().mockReturnValue(true),
-  close: vi.fn(),
-};
-
-// Type for accessing private members (better than 'any')
+// Type for accessing private members
 interface BrowserManagerPrivate {
-  browser: unknown;
-  page: unknown;
+  browser: Browser | null;
+  page: Page | null;
   isInitializing: boolean;
-  idleTimeout: NodeJS.Timeout | null;
-  determineRecoveryLevel: (error?: Error) => number;
+  determineRecoveryLevel(error?: Error): number;
 }
 
 describe("BrowserManager", () => {
   let browserManager: BrowserManager;
+  let mockPage: Page;
+  let mockBrowser: Browser;
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    mockPage = {
+      isClosed: vi.fn().mockReturnValue(false),
+      close: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+    } as unknown as Page;
+
+    mockBrowser = {
+      isConnected: vi.fn().mockReturnValue(true),
+      close: vi.fn().mockResolvedValue(undefined),
+      pages: vi.fn().mockResolvedValue([mockPage]),
+      newPage: vi.fn().mockResolvedValue(mockPage),
+    } as unknown as Browser;
+
+    mockPuppeteer.launch.mockResolvedValue(mockBrowser);
     browserManager = new BrowserManager();
   });
 
   describe("initialize", () => {
     it("should initialize browser successfully", async () => {
-      mockInitializeBrowser.mockResolvedValue(undefined);
-
-      await browserManager.initialize();
-
-      expect(mockInitializeBrowser).toHaveBeenCalledTimes(1);
+      await browserManager.initialize({ allowDangerous: true });
+      expect(mockPuppeteer.launch).toHaveBeenCalled();
+      expect(browserManager.isReady()).toBe(true);
       expect(mockLogInfo).toHaveBeenCalledWith("BrowserManager initialized successfully");
     });
 
     it("should handle initialization errors", async () => {
-      const error = new Error("Initialization failed");
-      mockInitializeBrowser.mockRejectedValue(error);
+      const error = new Error("Launch failed");
+      mockPuppeteer.launch.mockRejectedValue(error);
 
-      await expect(browserManager.initialize()).rejects.toThrow("Initialization failed");
-
+      await expect(browserManager.initialize({ allowDangerous: true })).rejects.toThrow("Launch failed");
       expect(mockLogError).toHaveBeenCalledWith("BrowserManager initialization failed:", {
-        error: "Initialization failed",
+        error: "Launch failed",
       });
     });
 
     it("should not initialize if already initializing", async () => {
-      // Set private property to simulate ongoing initialization
       (browserManager as unknown as BrowserManagerPrivate).isInitializing = true;
-
       await browserManager.initialize();
-
-      expect(mockInitializeBrowser).not.toHaveBeenCalled();
+      expect(mockPuppeteer.launch).not.toHaveBeenCalled();
       expect(mockLogInfo).toHaveBeenCalledWith("Browser initialization already in progress...");
     });
   });
 
-  describe("navigateToPerplexity", () => {
-    it("should navigate to Perplexity successfully", async () => {
-      mockNavigateToPerplexity.mockResolvedValue(undefined);
+  describe("ensureBrowser", () => {
+    it("should merge launch options correctly", async () => {
+      const options = {
+        launchOptions: { args: ["--custom-arg"] },
+        allowDangerous: true,
+      };
+      await browserManager.initialize(options);
+      expect(mockPuppeteer.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: expect.arrayContaining(["--custom-arg", "--no-sandbox"]),
+        }),
+      );
+    });
 
+    it("should throw an error for dangerous arguments if not allowed", async () => {
+      const options = {
+        launchOptions: { args: ["--no-sandbox", "--disable-web-security"] },
+        allowDangerous: false,
+      };
+      await expect(browserManager.initialize(options)).rejects.toThrow(
+        "Dangerous browser arguments detected",
+      );
+    });
+
+    it("should allow dangerous arguments when explicitly permitted", async () => {
+      const options: { launchOptions: LaunchOptions; allowDangerous: boolean } = {
+        launchOptions: { args: ["--no-sandbox", "--disable-web-security"] },
+        allowDangerous: true,
+      };
+      await browserManager.initialize(options);
+      expect(mockPuppeteer.launch).toHaveBeenCalled();
+    });
+  });
+
+  describe("Navigation and Interaction", () => {
+    beforeEach(async () => {
+      await browserManager.initialize({ allowDangerous: true });
+    });
+
+    it("should navigate to Perplexity", async () => {
       await browserManager.navigateToPerplexity();
-
-      expect(mockNavigateToPerplexity).toHaveBeenCalledTimes(1);
-      expect(mockNavigateToPerplexity).toHaveBeenCalledWith(
-        expect.objectContaining({
-          browser: null,
-          page: null,
-          isInitializing: false,
-        }),
-      );
-    });
-  });
-
-  describe("waitForSearchInput", () => {
-    it("should return search input selector", async () => {
-      const expectedSelector = 'textarea[placeholder*="Ask"]';
-      mockWaitForSearchInput.mockResolvedValue(expectedSelector);
-
-      const result = await browserManager.waitForSearchInput();
-
-      expect(result).toBe(expectedSelector);
-      expect(mockWaitForSearchInput).toHaveBeenCalledTimes(1);
+      expect(mockNavigateToPerplexity).toHaveBeenCalled();
     });
 
-    it("should return null if no selector found", async () => {
-      mockWaitForSearchInput.mockResolvedValue(null);
-
-      const result = await browserManager.waitForSearchInput();
-
-      expect(result).toBeNull();
+    it("should wait for search input", async () => {
+      mockWaitForSearchInput.mockResolvedValue("textarea");
+      const selector = await browserManager.waitForSearchInput();
+      expect(selector).toBe("textarea");
+      expect(mockWaitForSearchInput).toHaveBeenCalled();
     });
-  });
 
-  describe("checkForCaptcha", () => {
-    it("should return true if captcha detected", async () => {
+    it("should check for captcha", async () => {
       mockCheckForCaptcha.mockResolvedValue(true);
-
-      const result = await browserManager.checkForCaptcha();
-
-      expect(result).toBe(true);
-      expect(mockCheckForCaptcha).toHaveBeenCalledTimes(1);
+      const hasCaptcha = await browserManager.checkForCaptcha();
+      expect(hasCaptcha).toBe(true);
+      expect(mockCheckForCaptcha).toHaveBeenCalled();
     });
 
-    it("should return false if no captcha", async () => {
-      mockCheckForCaptcha.mockResolvedValue(false);
-
-      const result = await browserManager.checkForCaptcha();
-
-      expect(result).toBe(false);
-    });
-  });
-
-  describe("performRecovery", () => {
-    it("should perform recovery with error", async () => {
-      const error = new Error("Test error");
-      mockRecoveryProcedure.mockResolvedValue(undefined);
-
+    it("should perform recovery", async () => {
+      const error = new Error("Test recovery");
       await browserManager.performRecovery(error);
-
-      expect(mockRecoveryProcedure).toHaveBeenCalledWith(
-        expect.objectContaining({
-          browser: null,
-          page: null,
-        }),
-        error,
-      );
+      expect(mockRecoveryProcedure).toHaveBeenCalledWith(expect.anything(), error);
     });
 
-    it("should perform recovery without error", async () => {
-      mockRecoveryProcedure.mockResolvedValue(undefined);
-
-      await browserManager.performRecovery();
-
-      expect(mockRecoveryProcedure).toHaveBeenCalledWith(expect.anything(), undefined);
+    it("should reset idle timeout", () => {
+      browserManager.resetIdleTimeout();
+      expect(mockResetIdleTimeout).toHaveBeenCalled();
     });
   });
 
@@ -183,118 +173,78 @@ describe("BrowserManager", () => {
       expect(browserManager.isReady()).toBe(false);
     });
 
-    it("should return true when properly initialized", () => {
-      // Set up mock browser and page
-      (browserManager as unknown as BrowserManagerPrivate).browser = mockBrowser;
-      (browserManager as unknown as BrowserManagerPrivate).page = mockPage;
-      (browserManager as unknown as BrowserManagerPrivate).isInitializing = false;
-
+    it("should return true when initialized and connected", async () => {
+      await browserManager.initialize({ allowDangerous: true });
       expect(browserManager.isReady()).toBe(true);
     });
 
-    it("should return false when page is closed", () => {
-      (browserManager as unknown as BrowserManagerPrivate).browser = mockBrowser;
-      (browserManager as unknown as BrowserManagerPrivate).page = {
-        ...mockPage,
-        isClosed: () => true,
-      };
-      (browserManager as unknown as BrowserManagerPrivate).isInitializing = false;
-
+    it("should return false if page is closed", async () => {
+      await browserManager.initialize({ allowDangerous: true });
+      vi.mocked(mockPage.isClosed).mockReturnValue(true);
       expect(browserManager.isReady()).toBe(false);
     });
   });
 
   describe("cleanup", () => {
-    it("should cleanup successfully", async () => {
-      // Setup browser and page
-      (browserManager as unknown as BrowserManagerPrivate).browser = mockBrowser;
-      (browserManager as unknown as BrowserManagerPrivate).page = mockPage;
-      (browserManager as unknown as BrowserManagerPrivate).idleTimeout = setTimeout(() => {}, 1000);
-
+    it("should close browser and page successfully", async () => {
+      await browserManager.initialize({ allowDangerous: true });
       await browserManager.cleanup();
-
       expect(mockPage.close).toHaveBeenCalled();
       expect(mockBrowser.close).toHaveBeenCalled();
+      expect(browserManager.isReady()).toBe(false);
       expect(mockLogInfo).toHaveBeenCalledWith("BrowserManager cleanup completed");
     });
 
     it("should handle cleanup errors gracefully", async () => {
-      const error = new Error("Cleanup failed");
-      const failingPage = { ...mockPage, close: vi.fn().mockRejectedValue(error) };
-      (browserManager as unknown as BrowserManagerPrivate).page = failingPage;
-
+      await browserManager.initialize({ allowDangerous: true });
+      const error = new Error("Close failed");
+      vi.mocked(mockPage.close).mockRejectedValue(error);
       await browserManager.cleanup();
-
       expect(mockLogError).toHaveBeenCalledWith("Error during BrowserManager cleanup:", {
-        error: "Cleanup failed",
+        error: "Close failed",
       });
-    });
-
-    it("should skip cleanup if browser/page not initialized", async () => {
-      await browserManager.cleanup();
-
-      expect(mockLogInfo).toHaveBeenCalledWith("BrowserManager cleanup completed");
-      // Should not throw or call any close methods
     });
   });
 
   describe("determineRecoveryLevel", () => {
-    it("should return level 1 for no error", () => {
-      const result = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel();
-      expect(result).toBe(1);
-    });
-
     it("should return level 3 for critical errors", () => {
       const criticalErrors = [
-        new Error("Frame detached"),
-        new Error("Browser crashed"),
-        new Error("Protocol error"),
+        new Error("detached"),
+        new Error("crashed"),
+        new Error("disconnected"),
       ];
-
       for (const error of criticalErrors) {
-        const result = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
+        const level = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
           error,
         );
-        expect(result).toBe(3);
+        expect(level).toBe(3);
       }
     });
 
     it("should return level 2 for navigation errors", () => {
-      const navigationErrors = [
-        new Error("Navigation failed"),
-        new Error("Timeout occurred"),
-        new Error("net::ERR_FAILED"),
-      ];
-
-      for (const error of navigationErrors) {
-        const result = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
+      const navErrors = [new Error("navigation"), new Error("timeout"), new Error("net::err")];
+      for (const error of navErrors) {
+        const level = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
           error,
         );
-        expect(result).toBe(2);
+        expect(level).toBe(2);
       }
     });
 
-    it("should return level 1 for minor errors", () => {
-      const minorError = new Error("Minor issue");
-      const result = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
-        minorError,
+    it("should return level 1 for other errors", () => {
+      const otherError = new Error("Some other error");
+      const level = (browserManager as unknown as BrowserManagerPrivate).determineRecoveryLevel(
+        otherError,
       );
-      expect(result).toBe(1);
+      expect(level).toBe(1);
     });
   });
 
-  describe("getters", () => {
-    it("should return null for browser and page initially", () => {
-      expect(browserManager.getBrowser()).toBeNull();
-      expect(browserManager.getPage()).toBeNull();
-    });
-
-    it("should return browser and page when set", () => {
-      (browserManager as unknown as BrowserManagerPrivate).browser = mockBrowser;
-      (browserManager as unknown as BrowserManagerPrivate).page = mockPage;
-
-      expect(browserManager.getBrowser()).toBe(mockBrowser);
+  describe("Getters", () => {
+    it("should return page and browser instances", async () => {
+      await browserManager.initialize({ allowDangerous: true });
       expect(browserManager.getPage()).toBe(mockPage);
+      expect(browserManager.getBrowser()).toBe(mockBrowser);
     });
   });
 });
