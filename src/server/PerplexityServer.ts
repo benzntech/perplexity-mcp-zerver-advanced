@@ -172,10 +172,7 @@ export class PerplexityServer {
   private async handleSearch(args: Record<string, unknown>): Promise<string> {
     const typedArgs = args as unknown as SearchArgs;
 
-    return await this.searchEngine.performSearch(typedArgs.query, {
-      launchOptions: typedArgs.launchOptions,
-      allowDangerous: typedArgs.allowDangerous,
-    });
+    return await this.searchEngine.performSearch(typedArgs.query);
   }
 
   private async handleExtractUrlContent(args: Record<string, unknown>): Promise<string> {

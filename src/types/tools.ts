@@ -59,9 +59,8 @@ export interface CheckDeprecatedCodeArgs extends BaseToolArgs {
   technology?: string;
 }
 
-export interface SearchArgs extends BaseToolArgs {
+export interface SearchArgs {
   query: string;
-  detail_level?: "brief" | "normal" | "detailed";
 }
 
 // ─── UNION TYPES ──────────────────────────────────────────────────────

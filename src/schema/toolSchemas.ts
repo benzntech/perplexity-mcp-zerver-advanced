@@ -393,7 +393,7 @@ export const TOOL_SCHEMAS = [
   {
     name: "search",
     description:
-      "Performs a web search using Perplexity AI based on the provided query and desired detail level. Useful for general knowledge questions, finding information, or getting different perspectives.",
+      "Performs a web search using Perplexity AI based on the provided query. Useful for general knowledge questions, finding information, or getting different perspectives.",
     category: "Web Search",
     keywords: ["search", "web", "internet", "query", "find", "information", "lookup", "perplexity"],
     use_cases: [
@@ -409,28 +409,6 @@ export const TOOL_SCHEMAS = [
           type: "string",
           description: "The search query or question to ask Perplexity.",
           examples: ["What is the capital of France?", "Explain black holes"],
-        },
-        detail_level: {
-          type: "string",
-          enum: ["brief", "normal", "detailed"],
-          description: "Optional: Controls the level of detail in the response (default: normal).",
-          examples: ["brief", "detailed"],
-        },
-        stream: {
-          type: "boolean",
-          description:
-            "Optional: Enable streaming response for large documentation queries (default: false).",
-          examples: [true, false],
-        },
-        launchOptions: {
-          type: "object",
-          description:
-            "PuppeteerJS LaunchOptions. Default null. If changed and not null, browser restarts. Example: { headless: true, args: ['--no-sandbox'] }",
-        },
-        allowDangerous: {
-          type: "boolean",
-          description:
-            "Allow dangerous LaunchOptions that reduce security. When false, dangerous args like --no-sandbox will throw errors. Default false.",
         },
       },
       required: ["query"],
@@ -452,7 +430,7 @@ export const TOOL_SCHEMAS = [
       },
       {
         description: "Detailed search query",
-        input: { query: "Explain the theory of relativity", detail_level: "detailed" },
+        input: { query: "Explain the theory of relativity" },
         output: {
           response:
             "Albert Einstein's theory of relativity includes Special Relativity and General Relativity...",

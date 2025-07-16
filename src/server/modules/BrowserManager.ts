@@ -170,6 +170,7 @@ export class BrowserManager implements IBrowserManager {
       if (!mergedConfig.args.includes('--no-sandbox')) {
         mergedConfig.args.push('--no-sandbox');
       }
+      this.allowDangerous = true;
     }
 
     // Security validation
