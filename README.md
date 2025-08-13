@@ -36,18 +36,56 @@ The server provides a suite of tools for research and development, each with a d
 
 ### Prerequisites
 - Node.js 18+
-- pnpm package manager
+- pnpm package manager (install with: `npm install -g pnpm`)
 
 ### Installation
+
+#### Method 1: Global Installation (Recommended)
 ```bash
 git clone https://github.com/wysh3/perplexity-mcp-zerver.git
 cd perplexity-mcp-zerver
 pnpm install
 pnpm run build
+npx puppeteer browsers install chrome  # Install Chrome for Puppeteer
+pnpm setup  # Set up pnpm global directory (one-time setup)
+source ~/.zshrc  # Reload shell configuration
+pnpm link --global  # Make command available globally
+```
+
+**Note**: If you prefer using npm for linking, you can use `npm link` instead of the pnpm setup steps.
+
+After global installation, you can run the server from anywhere using:
+```bash
+perplexity-mcp-zerver
+```
+
+#### Method 2: Local Installation
+```bash
+git clone https://github.com/wysh3/perplexity-mcp-zerver.git
+cd perplexity-mcp-zerver
+pnpm install
+pnpm run build
+npx puppeteer browsers install chrome
 ```
 
 ### Configuration
-Add the server to your MCP configuration file. **Replace `/path/to/project` with the absolute path** to the `perplexity-mcp-zerver` directory.
+
+#### For Global Installation
+If you installed globally using `npm link`, add this to your MCP configuration file:
+
+```json
+{
+  "mcpServers": {
+    "perplexity-server": {
+      "command": "perplexity-mcp-zerver",
+      "timeout": 600
+    }
+  }
+}
+```
+
+#### For Local Installation
+If you're running locally, add this to your MCP configuration file. **Replace `/path/to/project` with the absolute path** to the `perplexity-mcp-zerver` directory:
 
 ```json
 {

@@ -15,7 +15,7 @@
     "update-docs-date": "node scripts/update-docs-date.js"
   },
   "bin": {
-    "perplexity-mcp-zerver": "build/main.js"
+    "perplexity-mcp-zerver": "./build/main.js"
   },
   "files": [
     "build"
