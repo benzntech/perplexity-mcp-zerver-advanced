@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
  * Puppeteer utility functions for browser automation, navigation, and recovery
  */
 import puppeteer, { type Browser, type Page } from "puppeteer";
+import { promises as fs } from "fs";
 import { CONFIG } from "../server/config.js";
 import type { PuppeteerContext, RecoveryContext } from "../types/index.js";
 import { logError, logInfo, logWarn } from "./logging.js";
@@ -35,8 +36,8 @@ export async function initializeBrowser(ctx: PuppeteerContext) {
     ctx.setPage(page);
     await setupBrowserEvasion(ctx);
     await page.setViewport({
-      width: 1280,
-      height: 720,
+      width: 1920,
+      height: 1080,
       deviceScaleFactor: 1,
       isMobile: false,
       hasTouch: false,
@@ -107,35 +108,27 @@ async function waitForAndValidateSearchInput(ctx: PuppeteerContext): Promise<voi
   const { page } = ctx;
   if (!page) throw new Error("Page not initialized");
 
-  logInfo("Navigation initiated, waiting for search input to confirm readiness...");
   const searchInput = await waitForSearchInput(ctx);
   if (!searchInput) {
-    logError("Search input not found after navigation, taking screenshot for debugging");
-    if (!page.isClosed()) {
-      await page.screenshot({ path: "debug_no_search_input.png", fullPage: true });
-    }
+    logError("Search input not found after navigation");
     throw new Error(
       "Search input not found after navigation - page might not have loaded correctly",
     );
   }
-  logInfo("Search input found, page appears ready.");
 }
 
 async function validateFinalPageState(page: Page): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  let pageTitle = "N/A";
+  // Optimized: Skip the 3-second wait and just validate URL quickly
   let pageUrl = "N/A";
 
   try {
     if (!page.isClosed()) {
-      pageTitle = await page.title();
       pageUrl = page.url();
     }
   } catch (titleError) {
-    logWarn(`Could not retrieve page title/URL after navigation: ${titleError}`);
+    // Skip logging minor errors
   }
 
-  logInfo(`Page loaded: ${pageUrl} (${pageTitle})`);
   if (pageUrl !== "N/A" && !pageUrl.includes("perplexity.ai")) {
     logError(`Unexpected URL: ${pageUrl}`);
     throw new Error(`Navigation redirected to unexpected URL: ${pageUrl}`);
@@ -144,15 +137,38 @@ async function validateFinalPageState(page: Page): Promise<void> {
 
 async function handleNavigationFailure(page: Page, error: unknown): Promise<never> {
   logError(`Navigation failed: ${error}`);
-  try {
-    if (page) {
-      await page.screenshot({ path: "debug_navigation_failed.png", fullPage: true });
-      logInfo("Captured screenshot of failed navigation state");
+  
+  // Only capture screenshot for actual failures, not recoverable issues
+  const shouldCaptureScreenshot = CONFIG.DEBUG.CAPTURE_SCREENSHOTS && !isRecoverableError(error);
+  
+  if (shouldCaptureScreenshot) {
+    try {
+      if (page && !page.isClosed()) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        // Explicitly type the path with the correct extension to satisfy TypeScript
+        const screenshotPath = `debug_navigation_failed_${timestamp}.png` as const;
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        logInfo(`Captured screenshot of failed navigation state: ${screenshotPath}`);
+      }
+    } catch (screenshotError) {
+      logError(`Failed to capture screenshot: ${screenshotError}`);
     }
-  } catch (screenshotError) {
-    logError(`Failed to capture screenshot: ${screenshotError}`);
   }
+  
   throw error;
+}
+
+function isRecoverableError(error: unknown): boolean {
+  if (!error) return false;
+  
+  const errorMsg = typeof error === 'string' ? error : 
+    (error instanceof Error ? error.message : String(error)).toLowerCase();
+  
+  // These are errors that our recovery system can handle
+  return errorMsg.includes('search input not found') ||
+         errorMsg.includes('captcha') ||
+         errorMsg.includes('timeout') ||
+         errorMsg.includes('navigation');
 }
 
 export async function navigateToPerplexity(ctx: PuppeteerContext) {
