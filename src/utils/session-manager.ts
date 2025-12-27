@@ -5,21 +5,12 @@
 
 import { promises as fs } from "fs";
 import { join } from "path";
-import type { Page } from "puppeteer";
+import type { Page, CookieParam } from "puppeteer";
 import { logError, logInfo, logWarn } from "./logging.js";
 import { CONFIG } from "../server/config.js";
 
 interface StoredSession {
-  cookies: Array<{
-    name: string;
-    value: string;
-    domain: string;
-    path: string;
-    secure: boolean;
-    httpOnly: boolean;
-    sameSite?: string;
-    expires?: number;
-  }>;
+  cookies: CookieParam[];
   localStorage: Record<string, string>;
   timestamp: number;
 }
