@@ -238,14 +238,25 @@ export class SearchEngine implements ISearchEngine {
             stabilityCounter++;
             noChangeCounter++;
 
-            if (currentLength > 1000 && stabilityCounter >= 3) {
-              console.log('Long answer stabilized, exiting early');
+            // Smart early exit based on content length and stability
+            // Short answers (100-500 chars): Exit after 2 stable checks (~1.2 seconds)
+            if (currentLength > 100 && currentLength <= 500 && stabilityCounter >= 2) {
+              console.log(`Short answer stabilized (${currentLength} chars), exiting early`);
               break;
-            } else if (currentLength > 500 && stabilityCounter >= 4) {
-              console.log('Medium answer stabilized, exiting');
+            }
+            // Medium answers (500-1500 chars): Exit after 3 stable checks (~1.8 seconds)
+            if (currentLength > 500 && currentLength <= 1500 && stabilityCounter >= 3) {
+              console.log(`Medium answer stabilized (${currentLength} chars), exiting early`);
               break;
-            } else if (stabilityCounter >= 5) {
-              console.log('Short answer stabilized, exiting');
+            }
+            // Long answers (1500+ chars): Exit after 2 stable checks to avoid waiting (~1.2 seconds)
+            if (currentLength > 1500 && stabilityCounter >= 2) {
+              console.log(`Long answer stabilized (${currentLength} chars), exiting early`);
+              break;
+            }
+            // Fallback: Exit if very stable regardless of length
+            if (stabilityCounter >= 5) {
+              console.log('Answer highly stable, exiting');
               break;
             }
           } else {

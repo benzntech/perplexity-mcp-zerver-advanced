@@ -8,6 +8,7 @@ import { promises as fs } from "fs";
 import { CONFIG } from "../server/config.js";
 import type { PuppeteerContext, RecoveryContext } from "../types/index.js";
 import { logError, logInfo, logWarn } from "./logging.js";
+import { restoreSessionCookies, saveSessionCookies } from "./session-manager.js";
 import {
   analyzeError,
   calculateRetryDelay,
@@ -45,6 +46,16 @@ export async function initializeBrowser(ctx: PuppeteerContext) {
     await page.setUserAgent(CONFIG.USER_AGENT);
     page.setDefaultNavigationTimeout(CONFIG.PAGE_TIMEOUT);
 
+    // Restore session cookies to bypass Cloudflare for returning users
+    // Generate a default session ID based on operation count
+    const sessionId = `perplexity-session-${ctx.operationCount}`;
+    const sessionRestored = await restoreSessionCookies(page, sessionId);
+    if (sessionRestored) {
+      logInfo("Session restored successfully - user will appear as returning visitor");
+    } else {
+      logInfo("Starting fresh session - no previous session found");
+    }
+
     logInfo("Browser initialized successfully, skipping navigation in initialization");
     // Don't navigate to Perplexity during initialization - let individual tools handle navigation
     // await navigateToPerplexity(ctx);
@@ -72,8 +83,10 @@ export async function initializeBrowser(ctx: PuppeteerContext) {
 // Helper functions for navigation
 async function performInitialNavigation(page: Page): Promise<void> {
   try {
+    // Use networkidle2 for smarter waiting: waits until <=2 concurrent connections
+    // This is better than fixed timeouts and indicates the page is truly interactive
     await page.goto("https://www.perplexity.ai/", {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle2",
       timeout: CONFIG.PAGE_TIMEOUT,
     });
     const isInternalError = await page.evaluate(() => {
@@ -82,6 +95,7 @@ async function performInitialNavigation(page: Page): Promise<void> {
     if (isInternalError) {
       throw new Error("Perplexity.ai returned internal error page");
     }
+    logInfo("Page loaded successfully with smart network wait strategy");
   } catch (gotoError) {
     if (
       gotoError instanceof Error &&
@@ -92,8 +106,21 @@ async function performInitialNavigation(page: Page): Promise<void> {
       throw gotoError;
     }
     logWarn(
-      `Navigation issue detected: ${gotoError instanceof Error ? gotoError.message : String(gotoError)}`,
+      `Navigation issue detected: ${gotoError instanceof Error ? gotoError.message : String(gotoError)}. Retrying with fallback...`,
     );
+    
+    // Fallback: If networkidle2 times out, try with less strict waiting
+    try {
+      logInfo("Retrying navigation with domcontentloaded fallback...");
+      await page.goto("https://www.perplexity.ai/", {
+        waitUntil: "domcontentloaded",
+        timeout: CONFIG.PAGE_TIMEOUT,
+      });
+      logInfo("Navigation succeeded with fallback strategy");
+    } catch (fallbackError) {
+      logError(`Fallback navigation also failed: ${fallbackError}`);
+      throw fallbackError;
+    }
   }
 }
 
@@ -189,22 +216,44 @@ export async function navigateToPerplexity(ctx: PuppeteerContext) {
   }
 }
 
+/**
+ * Enhanced stealth evasion to bypass Cloudflare and other bot detection
+ * Masks signs of automation and headless browser detection
+ */
 export async function setupBrowserEvasion(ctx: PuppeteerContext) {
   const { page } = ctx;
   if (!page) return;
   await page.evaluateOnNewDocument(() => {
+    // Override navigator properties that reveal automation
     Object.defineProperties(navigator, {
       webdriver: { get: () => undefined },
       hardwareConcurrency: { get: () => 8 },
       deviceMemory: { get: () => 8 },
       platform: { get: () => "Win32" },
       languages: { get: () => ["en-US", "en"] },
+      maxTouchPoints: { get: () => 10 }, // Suggest touch capability for real browsers
       permissions: {
         get: () => ({
           query: async () => ({ state: "prompt" }),
         }),
       },
     });
+
+    // Mask plugins (headless browsers don't have plugins by default)
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [
+        { name: "Chrome PDF Plugin", description: "Portable Document Format" },
+        { name: "Chrome PDF Viewer", description: "" },
+        { name: "Native Client Executable", description: "" },
+      ],
+    });
+
+    // Override toString() to hide automation signatures
+    Object.defineProperty(navigator, "toString", {
+      value: (() => "NavigatorPrototype").bind({}),
+    });
+
+    // Create comprehensive chrome API to pass detection checks
     if (typeof window.chrome === "undefined") {
       window.chrome = {
         app: {
